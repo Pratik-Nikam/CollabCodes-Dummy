@@ -372,7 +372,80 @@ format:
 test:
 	pytest -v
 
+<!-- File: public/socket-playground.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Socket.IO Chatbot Playground</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+  <h2>Chatbot Socket.IO Playground</h2>
+  <div>
+    <input id="input" placeholder="Type message here...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+  <pre id="log" style="background:#f0f0f0; padding:1em;"></pre>
 
+  <script>
+    const socket = io("http://localhost:5005");
+    const log = document.getElementById("log");
+
+    socket.on("connect", () => logMessage("Connected: " + socket.id));
+    socket.on("bot_uttered", data => logMessage("Bot: " + JSON.stringify(data)));
+    socket.on("session_request", data => logMessage("Session Request: " + JSON.stringify(data)));
+    socket.on("session_confirm", data => logMessage("Session Confirmed"));
+
+    function sendMessage() {
+      const msg = document.getElementById("input").value;
+      socket.emit("user_uttered", { message: msg });
+      logMessage("You: " + msg);
+    }
+
+    function logMessage(text) {
+      log.textContent += text + "\n";
+    }
+  </script>
+</body>
+</html>
+
+
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/socket-events", tags=["Documentation"])
+async def socket_events_doc():
+    return {
+        "description": "List of supported Socket.IO events and their formats.",
+        "events": {
+            "connect": "Triggered automatically when a user connects.",
+            "disconnect": "Triggered when the user disconnects.",
+            "user_uttered": {
+                "description": "User sends a message to the bot.",
+                "format": {
+                    "message": "/intent_name{\"key\": \"value\"}"
+                }
+            },
+            "bot_uttered": {
+                "description": "Bot responds with a structured message.",
+                "format": {
+                    "text": "Hey there!",
+                    "meta": {},
+                    "payload": {}
+                }
+            },
+            "session_request": "Sent by the server to initiate a session.",
+            "session_confirm": "Sent by the server to confirm the session is ready."
+        }
+    }
+
+
+
+    fastapi_app.include_router(socket_doc_router)
+
+    
 
 
 
