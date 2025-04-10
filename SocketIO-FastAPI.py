@@ -447,6 +447,44 @@ async def socket_events_doc():
 
     
 
+from typing import Dict
+from datetime import datetime
+
+class ConnectionManager:
+    def __init__(self):
+        self.connections: Dict[str, Dict] = {}
+
+    def register(self, sid: str, user_info: Dict):
+        self.connections[sid] = {
+            "user": user_info,
+            "connected_at": datetime.utcnow()
+        }
+
+    def get(self, sid: str):
+        return self.connections.get(sid)
+
+    def all(self):
+        return self.connections
+
+    def disconnect(self, sid: str):
+        self.connections.pop(sid, None)
+
+# Global singleton instance
+manager = ConnectionManager()
+
+
+# app/routes/monitor.py
+from fastapi import APIRouter
+from app.core.connection_manager import manager
+
+router = APIRouter()
+
+@router.get("/active-users", tags=["Monitoring"])
+async def list_active_users():
+    return manager.all()
+
+
+    
 
 
 
