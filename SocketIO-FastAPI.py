@@ -299,6 +299,83 @@ class TaskHandler(BaseTask):
         ]
 
 
+PORT=5005
+HOST=0.0.0.0
+ENV=development
+LOG_DIR=logs
+MONGO_URI=mongodb://localhost:27017
+
+# File: run.py
+
+import os
+from dotenv import load_dotenv
+import uvicorn
+
+load_dotenv()
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "app.main:app",
+        host=os.getenv("HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", 8000)),
+        reload=True
+    )
+
+
+# app/core/config.py
+
+import os
+import yaml
+
+CONFIG = {}
+
+def load_config():
+    env = os.getenv("ENV", "development")
+
+    # Only try .env file locally
+    if os.getenv("USE_ENV_FILE", "true").lower() == "true":
+        from dotenv import load_dotenv
+        env_file = f".env.{env}" if os.path.exists(f".env.{env}") else ".env"
+        load_dotenv(dotenv_path=env_file)
+
+    # Load YAML config optionally
+    config_path = f"config/{env}.yaml"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            global CONFIG
+            CONFIG = yaml.safe_load(f)
+
+    return CONFIG
+
+
+# File: Makefile
+
+# Default environment variables (override as needed)
+ENV ?= development
+PORT ?= 5005
+HOST ?= 0.0.0.0
+
+.PHONY: install run lint format test
+
+install:
+	pip install -r requirements.txt
+
+run:
+	ENV=$(ENV) HOST=$(HOST) PORT=$(PORT) python run.py
+
+lint:
+	flake8 app
+
+format:
+	black app
+
+test:
+	pytest -v
+
+
+
+
+
 
 
 
