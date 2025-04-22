@@ -1,88 +1,103 @@
-
-class SessionManager:
-    def __init__(self):
-        self.sessions = {}
-
-    def get(self, sid):
-        return self.sessions.setdefault(sid, {"intent": None, "step": None, "data": {}})
-
-    def clear(self, sid):
-        self.sessions.pop(sid, None)
-
-session_manager = SessionManager()
-
-
 from abc import ABC, abstractmethod
+from datetime import datetime
 
-class BaseTask(ABC):
+class ConversationLogger(ABC):
     @abstractmethod
-    async def handle(self, sid, sio, session, payload):
+    async def log(self, user_id: str, user_name: str, message: str, direction: str):
         pass
 
 
-from tasks.base import BaseTask
+from core.db_logger import ConversationLogger
+from core.database import get_db
+from datetime import datetime
 
-class CreateTicket(BaseTask):
-    async def handle(self, sid, sio, session, payload):
-        step = session['step']
-        
-        if step is None:
-            await sio.emit('bot_uttered', {
-                'message': 'I can help you create a support ticket. Please enter your GCI ID:',
-                'template': 'enter_gci_template'
-            }, to=sid)
-            session['step'] = 'awaiting_gci'
+class OracleConversationLogger(ConversationLogger):
+    async def log(self, user_id: str, user_name: str, message: str, direction: str):
+        conn_gen = get_db()
+        conn = next(conn_gen)
+        cursor = conn.cursor()
 
-        elif step == 'awaiting_gci':
-            gci_id = payload.get('gci_id')
-            if gci_id:
-                session['data']['gci_id'] = gci_id
-                cases = ['CASE123', 'CASE456']  # Replace with actual DB query
-                await sio.emit('bot_uttered', {
-                    'message': 'Please select your case:',
-                    'cases': cases,
-                    'template': 'select_case_template'
-                }, to=sid)
-                session['step'] = 'awaiting_case_selection'
-
-        elif step == 'awaiting_case_selection':
-            selected_case = payload.get('selected_case_id')
-            if selected_case:
-                session['data']['selected_case'] = selected_case
-                await sio.emit('bot_uttered', {
-                    'message': f"You've selected case {selected_case}. Confirm ticket creation?",
-                    'options': ['Yes', 'No']
-                }, to=sid)
-                session['step'] = 'confirm_ticket'
-
-        elif step == 'confirm_ticket':
-            confirmation = payload.get('confirmation')
-            if confirmation == 'Yes':
-                case = session['data']['selected_case']
-                await sio.emit('bot_uttered', {
-                    'message': f'Ticket for case {case} created successfully!'
-                }, to=sid)
-                session.clear()
-            else:
-                await sio.emit('bot_uttered', {
-                    'message': 'Ticket creation canceled. How else can I assist?'
-                }, to=sid)
-                session.clear()
+        try:
+            cursor.execute("""
+                INSERT INTO CONVERSATIONS (USER_ID, USER_NAME, MESSAGE, DIRECTION, LOG_TIME)
+                VALUES (:user_id, :user_name, :message, :direction, :log_time)
+            """, {
+                "user_id": user_id,
+                "user_name": user_name,
+                "message": message,
+                "direction": direction,
+                "log_time": datetime.now()
+            })
+            conn.commit()
+        finally:
+            cursor.close()
+            next(conn_gen, None)
 
 
+from core.db_logger import ConversationLogger
+from datetime import datetime
+from pymongo import MongoClient
 
-from tasks.create_ticket import CreateTicket
-# Import other tasks here...
+client = MongoClient("mongodb://localhost:27017/")
+collection = client.chatbot.conversations
 
-TASKS = {
-    "create_ticket": CreateTicket(),
-    # "get_case_details": GetCaseDetails(),
-    # Add other tasks similarly...
-}
+class MongoConversationLogger(ConversationLogger):
+    async def log(self, user_id: str, user_name: str, message: str, direction: str):
+        collection.insert_one({
+            "user_id": user_id,
+            "user_name": user_name,
+            "message": message,
+            "direction": direction,
+            "timestamp": datetime.now()
+        })
 
-def get_task(intent):
-    return TASKS.get(intent)
 
+from core.oracle_logger import OracleConversationLogger
+from core.mongo_logger import MongoConversationLogger
+
+# Choose dynamically
+use_mongo = False  # Toggle this
+
+conversation_logger = MongoConversationLogger() if use_mongo else OracleConversationLogger()
+
+from core.oracle_logger import OracleConversationLogger
+from core.mongo_logger import MongoConversationLogger
+
+# Choose dynamically
+use_mongo = False  # Toggle this
+
+conversation_logger = MongoConversationLogger() if use_mongo else OracleConversationLogger()
+
+
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
+
+file_handler = RotatingFileHandler(
+    filename=f"{LOG_DIR}/app.log",
+    maxBytes=5 * 1024 * 1024,
+    backupCount=3,
+    encoding='utf-8'
+)
+file_handler.setFormatter(formatter)
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+
+logger = logging.getLogger("chatbot")
+logger.setLevel(logging.INFO)
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+from core.logger import logger
+
+logger.info("Bot started")
+logger.error("Failed to connect to DB")
 
 
 
